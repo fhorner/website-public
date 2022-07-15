@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>R Demos on Fiona Horner</title>
+    <link>https://fionahorner.com/r-demos/</link>
+    <description>Recent content in R Demos on Fiona Horner</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Thu, 05 May 2016 21:48:51 -0700</lastBuildDate><atom:link href="https://fionahorner.com/r-demos/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Quick Code: Bootstrapping</title>
+      <link>https://fionahorner.com/r-demos/quick-code-bootstrapping/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://fionahorner.com/r-demos/quick-code-bootstrapping/</guid>
+      <description>The boot package in R makes bootstrapping easy – but the format of the output is somewhat of a nightmare. Here, I talk through a small function to extract your boot confidence intervals in a more user-friendly format. If you are new to functions, this could be a good example to get a feel for how they work.
+library(boot) library(tidyverse) Let’s say we have some sample data of N = 200.</description>
+    </item>
+    
+    <item>
+      <title>Simulating Multilevel Data: Part 1</title>
+      <link>https://fionahorner.com/r-demos/simulating-multilevel-data/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://fionahorner.com/r-demos/simulating-multilevel-data/</guid>
+      <description>Here, I show how to simulate multilevel data, specifically intensive longitudinal (daily diary) data. Multilevel data poses some challenges for simulation because it violates assumptions of independence and analyses typically include estimation of random effects (e.g., each person may have their own intercept and slope). This tutorial assumes background knowledge of multilevel modeling and within- and between-person effects.
+Once you understand how to simulate multilevel data, you can see how to incorporate it into power simulations here.</description>
+    </item>
+    
+    <item>
+      <title>Simulating Multilevel Data Part 2: Dependent Predictors</title>
+      <link>https://fionahorner.com/r-demos/dependent-predictors/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://fionahorner.com/r-demos/dependent-predictors/</guid>
+      <description>In this tutorial, I show how to simulate multilevel (daily diary) data when you have dependent predictors that are divided into within- and between-person components. Just like in part 1, we’ll pull our parameters from an existing dataset and model for ease. But keep in mind that in many cases (like power analyses), you may need to pull these parameters from pilot data or from the literature.
+I’ll base my simulation on the same data and model used in part 1, so I recommend reading that post first.</description>
+    </item>
+    
+  </channel>
+</rss>

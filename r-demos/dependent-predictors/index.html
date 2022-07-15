@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Hugo 0.101.0" />
+
+
+<title>Simulating Multilevel Data Part 2: Dependent Predictors - Fiona Horner</title>
+<meta property="og:title" content="Simulating Multilevel Data Part 2: Dependent Predictors - Fiona Horner">
+
+
+  <link href='https://fionahorner.com/FHlogo.png' rel='icon' type='image/x-icon'/>
+
+
+
+  
+
+
+
+
+
+
+
+
+<link href='//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css' rel='stylesheet' type='text/css' />
+
+
+
+<link rel="stylesheet" href="/css/fonts.css" media="all">
+<link rel="stylesheet" href="/css/main.css" media="all">
+
+
+
+  </head>
+  <body>
+    <div class="wrapper">
+      <header class="header">
+        <nav class="nav">
+  <a href="/" class="nav-logo">
+    <img src="/images/FHlogo.png"
+         width="50"
+         height="50"
+         alt="Logo">
+  </a>
+
+  <ul class="nav-links">
+    
+    <li><a href="/research/">Research</a></li>
+    
+    <li><a href="/cv/">CV</a></li>
+    
+    <li><a href="/r-demos/">R Demos</a></li>
+    
+  </ul>
+</nav>
+
+      </header>
+
+
+<main class="content" role="main">
+
+  <article class="article">
+    
+
+    <h1 class="article-title">Simulating Multilevel Data Part 2: Dependent Predictors</h1>
+
+    
+
+    <div class="article-content">
+      
+
+
+<p>In this tutorial, I show how to simulate multilevel (daily diary) data when you have dependent predictors that are divided into within- and between-person components. Just like in part 1, we’ll pull our parameters from an existing dataset and model for ease. But keep in mind that in many cases (like power analyses), you may need to pull these parameters from pilot data or from the literature.</p>
+<p>I’ll base my simulation on the same data and model used in part 1, so I recommend reading that post first.</p>
+<p>We’ll need these packages:</p>
+<pre class="r"><code>library(nlme)
+library(MASS)
+library(tidyverse)
+
+set.seed(1234)</code></pre>
+<p>As a recap, the data we are trying to simulate is from a study of adults with type 2 diabetes. In part 1, we were interested in the following model, which uses within- and between-person positive affect (PA) and negative affect (NA), as well as age, to predict how much someone collaborated with their significant other to manage their diabetes on a given day.</p>
+<pre class="r"><code>collabMod &lt;- lme(collaboration ~ PA_within + PA_between +
+                   NA_within + NA_between + age + time,
+                  data = diabetes,
+                  random = ~ PA_within + time + 1|id,
+                  na.action = na.omit)</code></pre>
+<p>In part 1, we simulated all of these predictors independently from a univariate normal distribution. But PA and NA are almost certainly correlated: if you are high in PA on one day, you are probably low in NA on that day.</p>
+<p>Usually, we can account for this using the function <code>MASS::mvrnorm</code>, which we used for our random effects in part 1. But since this is daily diary data, our PA and NA variables were split into within- and between-person variables. How do we make sure these relations are retained when dividing up the variance like this?</p>
+<p>Basically, we need to separately simulate the within- and between-person variables, rather than simulating the raw daily variables and then dividing them into within- and between-person effects. To do this, we’ll need to pull some information from the original data set (or prior literature):</p>
+<pre class="r"><code>head(diabetes)</code></pre>
+<pre><code>## # A tibble: 6 × 10
+##      id  time daily_PA daily_NA PA_between NA_between PA_within NA_within
+##   &lt;dbl&gt; &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt;      &lt;dbl&gt;      &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;
+## 1     1     0     2.67     1.33      -1.32    -0.0980     0.333   -0.0556
+## 2     1     1     3        1.33      -1.32    -0.0980     0.667   -0.0556
+## 3     1     2     3.33     1         -1.32    -0.0980     1       -0.389 
+## 4     1     3     3        1.33      -1.32    -0.0980     0.667   -0.0556
+## 5     1     4     3        1.67      -1.32    -0.0980     0.667    0.278 
+## 6     1     5     2.33     3         -1.32    -0.0980     0        1.61  
+## # … with 2 more variables: collaboration &lt;dbl&gt;, age &lt;dbl&gt;</code></pre>
+<p>Notice how, in contrast to part 1, we have to start with our raw daily affect variables instead of the already parsed and centered within- and between-person variables. This is because we’ll use the raw means.</p>
+<p>We’ll start the same way as part 1: by creating a data frame with 200 participants, each with 14 time points (rows) of data.</p>
+<pre class="r"><code>n_participants &lt;- 200
+n_timepoints &lt;- 14
+time &lt;- rep(seq(0, n_timepoints-1, length = n_timepoints), n_participants)
+id &lt;- rep(1:n_participants, each = n_timepoints)
+
+#put together into a data frame
+sim_data &lt;- data.frame(id, time)
+head(sim_data)</code></pre>
+<pre><code>##   id time
+## 1  1    0
+## 2  1    1
+## 3  1    2
+## 4  1    3
+## 5  1    4
+## 6  1    5</code></pre>
+<p>Let’s add participants’ ages:</p>
+<pre class="r"><code>age &lt;- runif(n_participants, min = 25, max = 82)
+sim_data$age &lt;- round(age,1)</code></pre>
+<div id="between-person-component" class="section level2">
+<h2>Between-person component</h2>
+<p>Ok let’s move to our between-person variables. First, we need to calculate the person-means for PA and NA. This is an uncentered between-person variable, so we want one for each participant.</p>
+<pre class="r"><code>means &lt;- diabetes %&gt;% 
+  group_by(id) %&gt;% 
+  summarise(PA_between = mean(daily_PA, na.rm = T),
+            NA_between = mean(daily_NA, na.rm = T))
+
+head(means)</code></pre>
+<pre><code>## # A tibble: 6 × 3
+##      id PA_between NA_between
+##   &lt;dbl&gt;      &lt;dbl&gt;      &lt;dbl&gt;
+## 1     1       2.33       1.39
+## 2     2       5          1   
+## 3     3       4          1.05
+## 4     4       5          1.02
+## 5     5       4          1.03
+## 6     6       3.28       1.15</code></pre>
+<p>Next, we need to know how the between-person PA and between-person NA relate to each other. I.e., what is the covariance between the two person-means?</p>
+<pre class="r"><code>between_cov &lt;- means %&gt;% 
+  select(!id) %&gt;% 
+  cov(use = &quot;complete.obs&quot;)
+
+between_cov</code></pre>
+<pre><code>##            PA_between NA_between
+## PA_between  0.6676208 -0.2617554
+## NA_between -0.2617554  0.3192582</code></pre>
+<p>Now, we need the means of these between-person variables, i.e., the grand means:</p>
+<pre class="r"><code>grandmeans &lt;- means %&gt;% 
+  summarise(PA_gm = mean(PA_between),
+            NA_gm = mean(NA_between)) 
+grandmeans</code></pre>
+<pre><code>## # A tibble: 1 × 2
+##   PA_gm NA_gm
+##   &lt;dbl&gt; &lt;dbl&gt;
+## 1  3.66  1.49</code></pre>
+<p>Given the covariance matrix and the means, we can now use the <code>mvrnorm</code> function to sample from a multivariate normal distribution:</p>
+<pre class="r"><code>bp_sims &lt;- mvrnorm(n = n_participants,                         #number of pulls
+                   mu = c(grandmeans$PA_gm, grandmeans$NA_gm), #means
+                   Sigma = between_cov)                        #covariances
+
+head(bp_sims)</code></pre>
+<pre><code>##      PA_between NA_between
+## [1,]   3.443189  1.8851583
+## [2,]   4.222305  1.6469588
+## [3,]   3.639290  1.5878426
+## [4,]   3.852054  0.9030125
+## [5,]   4.305419  1.1335071
+## [6,]   3.653105  1.8058544</code></pre>
+<pre class="r"><code>str(bp_sims)</code></pre>
+<pre><code>##  num [1:200, 1:2] 3.44 4.22 3.64 3.85 4.31 ...
+##  - attr(*, &quot;dimnames&quot;)=List of 2
+##   ..$ : NULL
+##   ..$ : chr [1:2] &quot;PA_between&quot; &quot;NA_between&quot;</code></pre>
+<p>Note that if you are only interested in grandmean centered between-person effects, you could also set <code>mu = c(0, 0)</code>.</p>
+<p>And now we have 200 simulated values for between-person PA and NA! Let’s double check that they covary like we expect:</p>
+<pre class="r"><code>between_cov</code></pre>
+<pre><code>##            PA_between NA_between
+## PA_between  0.6676208 -0.2617554
+## NA_between -0.2617554  0.3192582</code></pre>
+<pre class="r"><code>cov(bp_sims)</code></pre>
+<pre><code>##            PA_between NA_between
+## PA_between  0.6989936 -0.2266494
+## NA_between -0.2266494  0.3116244</code></pre>
+<p>Looks pretty close to me!</p>
+<p>Let’s merge these with our <code>sim_data</code> dataframe and then center these values around the grandmeans to be consistent with our original dataframe. Remember to repeat each between-person variable <code>n_timepoins</code> times, since this data frame is in long format.</p>
+<pre class="r"><code>sim_data &lt;- sim_data %&gt;% 
+  mutate(PA_between = rep(bp_sims[,1], each = n_timepoints),
+         NA_between = rep(bp_sims[,2], each = n_timepoints),
+         PA_grandmean = rep(grandmeans$PA_gm, nrow(sim_data)),
+         NA_grandmean = rep(grandmeans$NA_gm, nrow(sim_data)),
+         #centering
+         PA_between = PA_between - PA_grandmean,
+         NA_between = NA_between - NA_grandmean)
+
+head(sim_data)</code></pre>
+<pre><code>##   id time  age PA_between NA_between PA_grandmean NA_grandmean
+## 1  1    0 31.5 -0.2125348  0.3922471     3.655724     1.492911
+## 2  1    1 60.5 -0.2125348  0.3922471     3.655724     1.492911
+## 3  1    2 59.7 -0.2125348  0.3922471     3.655724     1.492911
+## 4  1    3 60.5 -0.2125348  0.3922471     3.655724     1.492911
+## 5  1    4 74.1 -0.2125348  0.3922471     3.655724     1.492911
+## 6  1    5 61.5 -0.2125348  0.3922471     3.655724     1.492911</code></pre>
+</div>
+<div id="within-person-component" class="section level2">
+<h2>Within-person component</h2>
+<p>So now we have between-person components of PA and NA that covary the same way as they did in the original data. Next, we do the same thing with the within-person components, AKA the part of the raw daily variable that is not accounted for my the person-mean, AKA the residual.</p>
+<p>How do the original within-person variables covary?</p>
+<pre class="r"><code>#compute within-person residuals from original data
+within_cov &lt;- diabetes %&gt;% 
+  select(PA_within, NA_within) %&gt;% 
+  cov(use = &quot;complete.obs&quot;)
+
+within_cov</code></pre>
+<pre><code>##            PA_within  NA_within
+## PA_within  0.4206248 -0.1987959
+## NA_within -0.1987959  0.3421716</code></pre>
+<p>Note that this covariance matrix is across everyone in the sample. The fact that some people will have larger or smaller covariances is taken into account when we simulate random effects (see part 1).</p>
+<p>Also, we know that the mean of our within-person variables is by definition 0, since it’s calculated as our daily affect variable minus the (uncentered) person-mean of these daily values.</p>
+<p>Given this info, we can use our handy <code>mvrnorm</code> function again:</p>
+<pre class="r"><code>wp_sims &lt;- mvrnorm(n = n_participants*n_timepoints,       #number of pulls
+                   mu = c(0, 0),                          #means
+                   Sigma = within_cov)                    #covariances
+
+head(wp_sims)</code></pre>
+<pre><code>##         PA_within  NA_within
+## [1,] -0.719094272  0.3103497
+## [2,]  0.487717050 -0.8806379
+## [3,] -0.548409420  0.1869728
+## [4,]  0.171341599  0.0770063
+## [5,] -1.311496056  0.5498334
+## [6,] -0.006074679 -0.3003809</code></pre>
+<pre class="r"><code>str(wp_sims)</code></pre>
+<pre><code>##  num [1:2800, 1:2] -0.719 0.488 -0.548 0.171 -1.311 ...
+##  - attr(*, &quot;dimnames&quot;)=List of 2
+##   ..$ : NULL
+##   ..$ : chr [1:2] &quot;PA_within&quot; &quot;NA_within&quot;</code></pre>
+<p>As you can see, the <code>wp_sims</code> object has 2800 rows (one per timepoint per person) and two columns (PA and NA). We’ll add this into our <code>sim_data</code> data frame.</p>
+<p>Let’s make sure it matches the original:</p>
+<pre class="r"><code>within_cov</code></pre>
+<pre><code>##            PA_within  NA_within
+## PA_within  0.4206248 -0.1987959
+## NA_within -0.1987959  0.3421716</code></pre>
+<pre class="r"><code>cov(wp_sims, use = &quot;complete.obs&quot;)</code></pre>
+<pre><code>##            PA_within  NA_within
+## PA_within  0.4169218 -0.1945090
+## NA_within -0.1945090  0.3263686</code></pre>
+<pre class="r"><code>sim_data &lt;- sim_data %&gt;% 
+  mutate(PA_within = wp_sims[,&quot;PA_within&quot;],
+         NA_within = wp_sims[,&quot;NA_within&quot;]) %&gt;% 
+  select(!c(PA_grandmean, NA_grandmean)) #don&#39;t need these anymore
+
+head(sim_data)</code></pre>
+<pre><code>##   id time  age PA_between NA_between    PA_within  NA_within
+## 1  1    0 31.5 -0.2125348  0.3922471 -0.719094272  0.3103497
+## 2  1    1 60.5 -0.2125348  0.3922471  0.487717050 -0.8806379
+## 3  1    2 59.7 -0.2125348  0.3922471 -0.548409420  0.1869728
+## 4  1    3 60.5 -0.2125348  0.3922471  0.171341599  0.0770063
+## 5  1    4 74.1 -0.2125348  0.3922471 -1.311496056  0.5498334
+## 6  1    5 61.5 -0.2125348  0.3922471 -0.006074679 -0.3003809</code></pre>
+<p>Now if you are fitting a multilevel model to your simulated data, you may want to keep PA and NA parsed like this. Or, you can combine your within- and between-person components into (grandmean-centered) daily variables.</p>
+<pre class="r"><code>sim_data &lt;- sim_data %&gt;% 
+  mutate(daily_PA = (PA_between + PA_within),
+         daily_NA = (NA_between + NA_within))
+head(sim_data)</code></pre>
+<pre><code>##   id time  age PA_between NA_between    PA_within  NA_within   daily_PA
+## 1  1    0 31.5 -0.2125348  0.3922471 -0.719094272  0.3103497 -0.9316291
+## 2  1    1 60.5 -0.2125348  0.3922471  0.487717050 -0.8806379  0.2751823
+## 3  1    2 59.7 -0.2125348  0.3922471 -0.548409420  0.1869728 -0.7609442
+## 4  1    3 60.5 -0.2125348  0.3922471  0.171341599  0.0770063 -0.0411932
+## 5  1    4 74.1 -0.2125348  0.3922471 -1.311496056  0.5498334 -1.5240309
+## 6  1    5 61.5 -0.2125348  0.3922471 -0.006074679 -0.3003809 -0.2186095
+##      daily_NA
+## 1  0.70259677
+## 2 -0.48839081
+## 3  0.57921992
+## 4  0.46925338
+## 5  0.94208049
+## 6  0.09186621</code></pre>
+<p>Let’s see how the overall correlations compare to the original data:</p>
+<pre class="r"><code>#original data
+diabetes %&gt;% 
+  select(daily_PA, daily_NA) %&gt;% 
+  cor(use = &quot;complete.obs&quot;)</code></pre>
+<pre><code>##            daily_PA   daily_NA
+## daily_PA  1.0000000 -0.5390516
+## daily_NA -0.5390516  1.0000000</code></pre>
+<pre class="r"><code>#sim dat
+sim_data %&gt;% 
+  select(daily_PA, daily_NA) %&gt;% 
+  cor(use = &quot;complete.obs&quot;)</code></pre>
+<pre><code>##            daily_PA   daily_NA
+## daily_PA  1.0000000 -0.4926435
+## daily_NA -0.4926435  1.0000000</code></pre>
+<p>Looks good to me!</p>
+<p>We can combine all of this work we’ve done so far into a single function, that takes as arguments the number of couples, number of timepoints, the person-mean (between-person) covariances and the residual (within-person) covariances, and outputs</p>
+<pre class="r"><code>dep_dyadic &lt;- function(n_couples, n_timepoints, between_cov, within_cov) {
+  time &lt;- rep(seq(0, n_timepoints-1, length = n_timepoints), n_participants)
+  id &lt;- rep(1:n_participants, each = n_timepoints)
+  age &lt;- runif(n_participants, min = 25, max = 82)
+
+  #between-person component
+  #grandmeans for mu argument
+  a &lt;- mvrnorm(n = n_couples, 
+               mu = c(grandmeans$PA_gm, grandmeans$NA_gm), 
+               Sigma = between_cov) 
+  PA_personmean &lt;- rep(a[,1], each = n_timepoints)
+  NA_personmean &lt;- rep(a[,2], each = n_timepoints)
+  
+  #within-person component
+  b &lt;- mvrnorm(n = n_couples*n_timepoints, 
+               mu = c(0,0), 
+               Sigma = within_cov)
+  PA_within &lt;- b[,1]
+  NA_within &lt;- b[,2]
+  
+  #combine into data frame
+  dd_dat &lt;- data.frame(id,
+                       time, 
+                       age = rep(age, each = n_timepoints),
+                       PA_personmean,
+                       NA_personmean,
+                       PA_within,
+                       NA_within)
+  #add components of the variables together for raw component
+  dd_dat &lt;- dd_dat %&gt;% 
+    mutate(daily_PA = (PA_personmean + PA_within),
+           daily_NA = (NA_personmean + NA_within))
+  #centering the parsed variables
+  dd_dat &lt;- dd_dat %&gt;% 
+           #grandmean center between-person vars. 
+    mutate(PA_between = (PA_personmean - grandmeans$PA_gm),
+           NA_between = (NA_personmean - grandmeans$NA_gm))
+  return(dd_dat)
+}</code></pre>
+<p>Let’s test it!</p>
+<pre class="r"><code>test &lt;- dep_dyadic(n_couples = 200, n_timepoints = 14, between_cov, within_cov)
+head(test)</code></pre>
+<pre><code>##   id time      age PA_personmean NA_personmean   PA_within  NA_within daily_PA
+## 1  1    0 25.85379      2.934729      1.665401  0.34901373 -0.5386053 3.283742
+## 2  1    1 25.85379      2.934729      1.665401 -0.09258417 -0.3809472 2.842144
+## 3  1    2 25.85379      2.934729      1.665401  0.49774296 -0.2858940 3.432472
+## 4  1    3 25.85379      2.934729      1.665401  0.59869135 -0.4679043 3.533420
+## 5  1    4 25.85379      2.934729      1.665401  0.35128870 -0.7651255 3.286017
+## 6  1    5 25.85379      2.934729      1.665401  0.62380336 -0.7627889 3.558532
+##    daily_NA PA_between NA_between
+## 1 1.1267954 -0.7209949  0.1724895
+## 2 1.2844535 -0.7209949  0.1724895
+## 3 1.3795067 -0.7209949  0.1724895
+## 4 1.1974964 -0.7209949  0.1724895
+## 5 0.9002752 -0.7209949  0.1724895
+## 6 0.9026118 -0.7209949  0.1724895</code></pre>
+<p>How do our correlations look?</p>
+<pre class="r"><code>#original within-person
+within_cov</code></pre>
+<pre><code>##            PA_within  NA_within
+## PA_within  0.4206248 -0.1987959
+## NA_within -0.1987959  0.3421716</code></pre>
+<pre class="r"><code>#simulated within-person
+test %&gt;% select(PA_within, NA_within) %&gt;% 
+  cov( use = &quot;complete.obs&quot;)</code></pre>
+<pre><code>##            PA_within  NA_within
+## PA_within  0.4033099 -0.1977193
+## NA_within -0.1977193  0.3475565</code></pre>
+<pre class="r"><code>#original between-person
+between_cov</code></pre>
+<pre><code>##            PA_between NA_between
+## PA_between  0.6676208 -0.2617554
+## NA_between -0.2617554  0.3192582</code></pre>
+<pre class="r"><code>#simulated between-person
+test %&gt;% select(PA_between, NA_between) %&gt;% 
+  cov( use = &quot;complete.obs&quot;)</code></pre>
+<pre><code>##            PA_between NA_between
+## PA_between  0.6802046 -0.2340913
+## NA_between -0.2340913  0.2787881</code></pre>
+<pre class="r"><code>#original daily
+diabetes %&gt;% 
+  select(daily_PA, daily_NA) %&gt;% 
+  cor(use = &quot;complete.obs&quot;)</code></pre>
+<pre><code>##            daily_PA   daily_NA
+## daily_PA  1.0000000 -0.5390516
+## daily_NA -0.5390516  1.0000000</code></pre>
+<pre class="r"><code>#simulated daily
+test %&gt;% 
+  select(daily_PA, daily_NA) %&gt;% 
+  cor(use = &quot;complete.obs&quot;)</code></pre>
+<pre><code>##           daily_PA  daily_NA
+## daily_PA  1.000000 -0.509988
+## daily_NA -0.509988  1.000000</code></pre>
+<p>Great! At this point, our simulation syntax is almost identical to post 1 – refer to that post if you want to see how this block of code works:</p>
+<pre class="r"><code>get_random_effects &lt;- function(sim_data, n_participants, 
+                                n_timepoints, nlme.model){
+  beta_int &lt;-  fixed.effects(nlme.model)[&quot;(Intercept)&quot;]
+  beta_time &lt;-  fixed.effects(nlme.model)[&quot;time&quot;]
+  beta_PA_within &lt;- fixed.effects(nlme.model)[&quot;PA_within&quot;]
+  sigma &lt;-  nlme.model[[&quot;sigma&quot;]]
+  cov &lt;- getVarCov(nlme.model)
+  a &lt;- mvrnorm(n_participants, c(0,0,0), Sigma = cov)
+  rand_intercepts &lt;- rep(a[,1], each = n_timepoints)
+  rand_PA_within &lt;- rep(a[,2], each = n_timepoints)
+  rand_time &lt;- rep(a[,3], each = n_timepoints) 
+  error &lt;- rnorm(n_participants*n_timepoints, 0, sigma)
+  sim_data &lt;- sim_data %&gt;% 
+    mutate(intercepts = (beta_int + rand_intercepts),
+           slope_time = (beta_time + rand_time),
+           slope_PA_within = (beta_PA_within + rand_PA_within),
+           error)
+  return(sim_data)
+}
+
+get_outcome &lt;- function(sim_data, n_participants, 
+                             n_timepoints, nlme.model){
+  #betas for predictors with only fixed effects:
+  beta_PA_between &lt;- fixed.effects(nlme.model)[&quot;PA_between&quot;]
+  beta_NA_within &lt;- fixed.effects(nlme.model)[&quot;NA_within&quot;]
+  beta_NA_between &lt;- fixed.effects(nlme.model)[&quot;NA_between&quot;]
+  beta_age &lt;- fixed.effects(nlme.model)[&quot;age&quot;]
+  sim_data &lt;- sim_data %&gt;% 
+    #this should match combined model above:
+    mutate(collaboration = 
+             intercepts + 
+             slope_PA_within*PA_within + 
+             beta_PA_between*PA_between +
+             beta_NA_within*NA_within + 
+             beta_NA_between*NA_between +
+             slope_time*time + 
+             beta_age*age + 
+             error)
+  return(sim_data)
+}</code></pre>
+<p>We’ll just make a few small edits to the <code>simulate_data</code> function below, since our initial function is now called <code>dep_dyadic()</code> and takes the additional arguments <code>between_cov</code> and <code>within_cov</code>.</p>
+<pre class="r"><code>simulate_data &lt;- function(n_participants, n_timepoints, nlme.model, 
+                           #add covariances to arguments:
+                          between_cov, within_cov){    
+  #update function name here:
+  dep_dyadic(n_participants, n_timepoints, between_cov, within_cov) %&gt;% 
+    get_random_effects(n_participants, n_timepoints, nlme.model) %&gt;% 
+    get_outcome(n_participants, n_timepoints, nlme.model)
+}</code></pre>
+<pre class="r"><code>test_sim &lt;- simulate_data(200, 14, collabMod, between_cov, within_cov)
+head(test_sim)</code></pre>
+<pre><code>##   id time     age PA_personmean NA_personmean  PA_within  NA_within daily_PA
+## 1  1    0 59.2188      4.304573     0.9614119  0.1816824 -0.1734045 4.486255
+## 2  1    1 59.2188      4.304573     0.9614119 -0.5299177  0.8760539 3.774655
+## 3  1    2 59.2188      4.304573     0.9614119 -0.7914241  0.8107665 3.513149
+## 4  1    3 59.2188      4.304573     0.9614119  1.0483259 -0.2527360 5.352899
+## 5  1    4 59.2188      4.304573     0.9614119 -0.6448668 -0.1289092 3.659706
+## 6  1    5 59.2188      4.304573     0.9614119 -0.3860118  0.2955614 3.918561
+##    daily_NA PA_between NA_between intercepts slope_time slope_PA_within
+## 1 0.7880073  0.6488493 -0.5314994   1.709004 0.07397793     -0.07980434
+## 2 1.8374658  0.6488493 -0.5314994   1.709004 0.07397793     -0.07980434
+## 3 1.7721784  0.6488493 -0.5314994   1.709004 0.07397793     -0.07980434
+## 4 0.7086759  0.6488493 -0.5314994   1.709004 0.07397793     -0.07980434
+## 5 0.8325026  0.6488493 -0.5314994   1.709004 0.07397793     -0.07980434
+## 6 1.2569733  0.6488493 -0.5314994   1.709004 0.07397793     -0.07980434
+##        error collaboration
+## 1  0.1315231      2.835394
+## 2  0.6913278      3.523226
+## 3  0.3943777      3.321294
+## 4 -0.6497774      2.207072
+## 5 -1.2170975      1.848531
+## 6 -0.8227144      2.295126</code></pre>
+<p>Looks good!</p>
+</div>
+<div id="recap" class="section level2">
+<h2>Recap</h2>
+<p>Let’s recap what we did here.</p>
+<ol style="list-style-type: decimal">
+<li>Get the PA and NA person-means from the original data (or prior literature)</li>
+<li>Pull the covariance matrix between these person means.</li>
+<li>Take the grand means</li>
+<li>Use <code>mvrnorm()</code> function to randomly sample <code>n_participant</code> simulated person-means based on the covariance and grand means.</li>
+<li>Pull the covariance matrix of the original within-person variables.</li>
+<li>Use <code>mvrnorm()</code> function to randomly sample <code>n_participant*n_timepoints</code> simulated within-person values using the covariance matrix and means set to 0.</li>
+<li>Combine into single data frame</li>
+</ol>
+<p>You can stop with #7, or you can add your within- and between-person components together to get overall daily NA and PA variables.</p>
+<p>Now, we can compare the model outputs using the original data versus our simulated data.</p>
+<pre class="r"><code>summary(collabMod)</code></pre>
+<pre><code>## Linear mixed-effects model fit by REML
+##   Data: diabetes 
+##        AIC     BIC    logLik
+##   6658.053 6739.37 -3315.027
+## 
+## Random effects:
+##  Formula: ~PA_within + time + 1 | id
+##  Structure: General positive-definite, Log-Cholesky parametrization
+##             StdDev     Corr         
+## (Intercept) 0.92056299 (Intr) PA_wth
+## PA_within   0.34580651  0.141       
+## time        0.04764546 -0.300  0.394
+## Residual    0.78970783              
+## 
+## Fixed effects:  collaboration ~ PA_within + PA_between + NA_within + NA_between +      age + time 
+##                  Value Std.Error   DF   t-value p-value
+## (Intercept)  1.8529140 0.3176015 2265  5.834085  0.0000
+## PA_within    0.0924109 0.0412089 2265  2.242501  0.0250
+## PA_between   0.4127638 0.0954993  196  4.322164  0.0000
+## NA_within   -0.0026098 0.0354924 2265 -0.073532  0.9414
+## NA_between  -0.1358025 0.1361690  196 -0.997308  0.3198
+## age          0.0112956 0.0058007  196  1.947279  0.0529
+## time        -0.0211969 0.0055048 2265 -3.850616  0.0001
+##  Correlation: 
+##            (Intr) PA_wth PA_btw NA_wth NA_btw age   
+## PA_within   0.029                                   
+## PA_between  0.155 -0.021                            
+## NA_within  -0.005  0.372 -0.007                     
+## NA_between -0.064 -0.001  0.545 -0.032              
+## age        -0.974 -0.013 -0.164  0.002  0.062       
+## time       -0.101  0.148  0.014  0.032  0.006 -0.002
+## 
+## Standardized Within-Group Residuals:
+##         Min          Q1         Med          Q3         Max 
+## -3.59580931 -0.57825261 -0.08428441  0.54513978  4.19543636 
+## 
+## Number of Observations: 2468
+## Number of Groups: 200</code></pre>
+<pre class="r"><code>simMod &lt;- lme(collaboration ~ PA_within + PA_between +
+                   NA_within + NA_between + age + time,
+                  data = test_sim,
+                  random = ~ PA_within + time + 1|id,
+                  na.action = na.omit)
+summary(simMod)</code></pre>
+<pre><code>## Linear mixed-effects model fit by REML
+##   Data: test_sim 
+##        AIC      BIC    logLik
+##   7484.451 7567.539 -3728.226
+## 
+## Random effects:
+##  Formula: ~PA_within + time + 1 | id
+##  Structure: General positive-definite, Log-Cholesky parametrization
+##             StdDev     Corr         
+## (Intercept) 0.92485757 (Intr) PA_wth
+## PA_within   0.31777036  0.135       
+## time        0.04960059 -0.300  0.409
+## Residual    0.78670441              
+## 
+## Fixed effects:  collaboration ~ PA_within + PA_between + NA_within + NA_between +      age + time 
+##                  Value  Std.Error   DF   t-value p-value
+## (Intercept)  1.5730807 0.21106126 2597  7.453195  0.0000
+## PA_within    0.1154808 0.03702214 2597  3.119235  0.0018
+## PA_between   0.4517962 0.09486385  196  4.762575  0.0000
+## NA_within    0.0034733 0.03241792 2597  0.107142  0.9147
+## NA_between   0.0231873 0.13804262  196  0.167972  0.8668
+## age          0.0151762 0.00373565  196  4.062537  0.0001
+## time        -0.0179653 0.00514489 2597 -3.491864  0.0005
+##  Correlation: 
+##            (Intr) PA_wth PA_btw NA_wth NA_btw age   
+## PA_within   0.031                                   
+## PA_between -0.065 -0.004                            
+## NA_within   0.006  0.439 -0.006                     
+## NA_between -0.097 -0.002  0.476  0.001              
+## age        -0.940 -0.006  0.049 -0.003  0.071       
+## time       -0.148  0.171 -0.002 -0.014 -0.001  0.000
+## 
+## Standardized Within-Group Residuals:
+##           Min            Q1           Med            Q3           Max 
+## -2.8980337562 -0.6168967651 -0.0003457813  0.6146024504  3.5467856252 
+## 
+## Number of Observations: 2800
+## Number of Groups: 200</code></pre>
+</div>
+
+    </div>
+  </article>
+  
+
+
+</main>
+
+      <footer class="footer">
+        <ul class="footer-links">
+          <li>
+            <a href="/index.xml" type="application/rss+xml" target="_blank">RSS feed</a>
+          </li>
+          <li>
+            <a href="https://gohugo.io/" class="footer-links-kudos">Made with <img src="/images/hugo-logo.png" alt="Img link to Hugo website" width="22" height="22"></a>
+          </li>
+        </ul>
+      </footer>
+
+    </div>
+    
+
+
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+
+
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/r.min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+<script>hljs.configure({languages: []}); hljs.initHighlightingOnLoad();</script>
+
+
+
+    
+<script src="/js/math-code.js"></script>
+<script async src="//cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+
+
+    
+  </body>
+</html>
+
+
+

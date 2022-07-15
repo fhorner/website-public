@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Hugo 0.101.0" />
+
+
+<title>Quick Code: Bootstrapping - Fiona Horner</title>
+<meta property="og:title" content="Quick Code: Bootstrapping - Fiona Horner">
+
+
+  <link href='https://fionahorner.com/FHlogo.png' rel='icon' type='image/x-icon'/>
+
+
+
+  
+
+
+
+
+
+
+
+
+<link href='//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css' rel='stylesheet' type='text/css' />
+
+
+
+<link rel="stylesheet" href="/css/fonts.css" media="all">
+<link rel="stylesheet" href="/css/main.css" media="all">
+
+
+
+  </head>
+  <body>
+    <div class="wrapper">
+      <header class="header">
+        <nav class="nav">
+  <a href="/" class="nav-logo">
+    <img src="/images/FHlogo.png"
+         width="50"
+         height="50"
+         alt="Logo">
+  </a>
+
+  <ul class="nav-links">
+    
+    <li><a href="/research/">Research</a></li>
+    
+    <li><a href="/cv/">CV</a></li>
+    
+    <li><a href="/r-demos/">R Demos</a></li>
+    
+  </ul>
+</nav>
+
+      </header>
+
+
+<main class="content" role="main">
+
+  <article class="article">
+    
+
+    <h1 class="article-title">Quick Code: Bootstrapping</h1>
+
+    
+
+    <div class="article-content">
+      
+
+
+<p>The <code>boot</code> package in R makes bootstrapping easy – but the format of the output is somewhat of a nightmare. Here, I talk through a small function to extract your <code>boot</code> confidence intervals in a more user-friendly format. If you are new to functions, this could be a good example to get a feel for how they work.</p>
+<pre class="r"><code>library(boot)
+library(tidyverse)</code></pre>
+<p>Let’s say we have some sample data of N = 200. We’ve got 4 predictors <code>x1</code>-<code>x4</code> and an outcome variable <code>y.</code> Predictors <code>x1</code>-<code>x3</code> and outcome <code>y</code> are continuous, while <code>x4</code> is binary:</p>
+<pre class="r"><code>head(data)</code></pre>
+<pre><code>## # A tibble: 6 × 5
+##      x1    x2    x3    x4     y
+##   &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+## 1  2.33  2.21  1.25     1   6.6
+## 2  5     1.05  1        2   6.2
+## 3  4     1.04  1.07     1   6.9
+## 4  5     1.32  1.02     1   6.4
+## 5  4     1.08  1.10     1   6.5
+## 6  3.28  1.08  1.95     1   5.8</code></pre>
+<p>We can see how these variables relate to y in the following simple model:</p>
+<pre class="r"><code>mod &lt;- lm(y ~ x1 + x2 + x3 + x4, 
+          data)
+summary(mod)</code></pre>
+<pre><code>## 
+## Call:
+## lm(formula = y ~ x1 + x2 + x3 + x4, data = data)
+## 
+## Residuals:
+##     Min      1Q  Median      3Q     Max 
+## -2.6296 -1.0859 -0.3642  0.4885  6.7462 
+## 
+## Coefficients:
+##             Estimate Std. Error t value Pr(&gt;|t|)    
+## (Intercept)  7.56805    1.06004   7.139 1.81e-11 ***
+## x1          -0.37831    0.17696  -2.138 0.033779 *  
+## x2          -0.07984    0.26817  -0.298 0.766228    
+## x3          -0.06904    0.35081  -0.197 0.844191    
+## x4           0.84633    0.24370   3.473 0.000634 ***
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## Residual standard error: 1.707 on 195 degrees of freedom
+## Multiple R-squared:  0.08576,    Adjusted R-squared:  0.06701 
+## F-statistic: 4.573 on 4 and 195 DF,  p-value: 0.001495</code></pre>
+<p>But say we then notice that our outcome variable is actually quite skewed, and so we aren’t sure if we can trust the results from our model since our assumption of normality is violated:</p>
+<pre class="r"><code>ggplot(data, aes(x = y)) +
+  geom_histogram(bins = 100)</code></pre>
+<p><img src="https://fionahorner.com/r-demos/quick-code-bootstrapping/index_files/figure-html/unnamed-chunk-5-1.png" width="672" /></p>
+<p>This is an instance where bootstrapping is handy. Bootstrapping takes a random sample of size <code>n</code> from your sample, and fits your model again. Then it resamples, and fits your model again…and again, and again. It samples with <em>replacement</em>, so you’ll have some observations that appear multiple times in each iteration, while other observations are missed. After it has resampled your data and fit your model many times, it aggregates the results and spits out a bootstrapped estimate, standard error, and confidence interval. Since each iteration was based off of slightly different observations, your result is less likely to be biased by skew, outliers, or other wonky distributions.</p>
+<p>Below we can see the arguments taken by the <code>boot::boot()</code> function</p>
+<pre class="r"><code>str(boot)</code></pre>
+<pre><code>## function (data, statistic, R, sim = &quot;ordinary&quot;, stype = c(&quot;i&quot;, &quot;f&quot;, &quot;w&quot;), 
+##     strata = rep(1, n), L = NULL, m = 0, weights = NULL, ran.gen = function(d, 
+##         p) d, mle = NULL, simple = FALSE, ..., parallel = c(&quot;no&quot;, &quot;multicore&quot;, 
+##         &quot;snow&quot;), ncpus = getOption(&quot;boot.ncpus&quot;, 1L), cl = NULL)</code></pre>
+<p>Most important are the first three:</p>
+<ul>
+<li><code>data</code>: the matrix or data frame you’re working with</li>
+<li><code>statistic</code>: a function that returns your statistic of interest</li>
+<li><code>R</code>: the number of times you want to resample</li>
+</ul>
+<p>For us, the statistics we’re interested in are the estimates returned from our linear model. But we want to format a new function so that it automatically returns just those coefficients, and not all the other info that comes with <code>lm</code>. We can create a small function to extract this info like so:</p>
+<pre class="r"><code>fun &lt;- function(data, index){
+ return(coef(lm(mod, data = data, subset = index)))
+}</code></pre>
+<p>Here, <code>mod</code> is the model we fit above, <code>data</code> is (obviously) our data, and <code>index</code> is a vector indicating which observations (rows) from our data frame should be included. For example, if we select all of our rows, our output should be identical to the initial results:</p>
+<pre class="r"><code>fun(data, 1:200)</code></pre>
+<pre><code>## (Intercept)          x1          x2          x3          x4 
+##  7.56804577 -0.37830562 -0.07984083 -0.06903943  0.84632682</code></pre>
+<pre class="r"><code>coef(mod)</code></pre>
+<pre><code>## (Intercept)          x1          x2          x3          x4 
+##  7.56804577 -0.37830562 -0.07984083 -0.06903943  0.84632682</code></pre>
+<p><code>boot()</code> randomly chooses which observations should be included in <code>index</code></p>
+<pre class="r"><code>boot.object &lt;- boot(data, fun, 1000)
+boot.object</code></pre>
+<pre><code>## 
+## ORDINARY NONPARAMETRIC BOOTSTRAP
+## 
+## 
+## Call:
+## boot(data = data, statistic = fun, R = 1000)
+## 
+## 
+## Bootstrap Statistics :
+##        original        bias    std. error
+## t1*  7.56804577  0.0482331382   1.0726538
+## t2* -0.37830562 -0.0117212441   0.2004917
+## t3* -0.07984083  0.0024717868   0.2827149
+## t4* -0.06903943 -0.0040158995   0.3152365
+## t5*  0.84632682 -0.0005952484   0.2533492</code></pre>
+<p>And <code>boot.ci</code> gives us our confidence intervals. Note that, if you are interested in multiple coefficients like we are, you have to specifically call that estimate using the <code>index</code> argument, where 1 calls t1* above (the intercept for us), 2 calls t2* (our estimate for x4) etc.</p>
+<pre class="r"><code>#this is the intercept
+boot.ci(boot.object, conf = .95, type = c(&quot;norm&quot;, &quot;basic&quot;, &quot;bca&quot;), index = 1)</code></pre>
+<pre><code>## BOOTSTRAP CONFIDENCE INTERVAL CALCULATIONS
+## Based on 1000 bootstrap replicates
+## 
+## CALL : 
+## boot.ci(boot.out = boot.object, conf = 0.95, type = c(&quot;norm&quot;, 
+##     &quot;basic&quot;, &quot;bca&quot;), index = 1)
+## 
+## Intervals : 
+## Level      Normal              Basic                BCa          
+## 95%   ( 5.417,  9.622 )   ( 5.506,  9.635 )   ( 5.500,  9.630 )  
+## Calculations and Intervals on Original Scale</code></pre>
+<pre class="r"><code>#this is for x1
+boot.ci(boot.object, conf = .95, type = c(&quot;norm&quot;, &quot;basic&quot;, &quot;bca&quot;), index = 2)</code></pre>
+<pre><code>## BOOTSTRAP CONFIDENCE INTERVAL CALCULATIONS
+## Based on 1000 bootstrap replicates
+## 
+## CALL : 
+## boot.ci(boot.out = boot.object, conf = 0.95, type = c(&quot;norm&quot;, 
+##     &quot;basic&quot;, &quot;bca&quot;), index = 2)
+## 
+## Intervals : 
+## Level      Normal              Basic                BCa          
+## 95%   (-0.7595,  0.0264 )   (-0.7374,  0.0163 )   (-0.7717, -0.0188 )  
+## Calculations and Intervals on Original Scale</code></pre>
+<pre class="r"><code>#this is for x2
+boot.ci(boot.object, conf = .95, type = c(&quot;norm&quot;, &quot;basic&quot;, &quot;bca&quot;), index = 3)</code></pre>
+<pre><code>## BOOTSTRAP CONFIDENCE INTERVAL CALCULATIONS
+## Based on 1000 bootstrap replicates
+## 
+## CALL : 
+## boot.ci(boot.out = boot.object, conf = 0.95, type = c(&quot;norm&quot;, 
+##     &quot;basic&quot;, &quot;bca&quot;), index = 3)
+## 
+## Intervals : 
+## Level      Normal              Basic                BCa          
+## 95%   (-0.6364,  0.4718 )   (-0.6590,  0.4673 )   (-0.6288,  0.4856 )  
+## Calculations and Intervals on Original Scale</code></pre>
+<p>To return all of our coefficients and their associated CIs in a nice clean table, we can use the following formula:</p>
+<pre class="r"><code>CItable = function(mod, data, boot.object){
+  pred = c(names(mod$coefficients))
+  index = seq(1:length(pred))
+  CIt = data.frame(index, pred)
+  for (i in index){
+    CI = boot.ci(boot.object, conf = 0.95, type = &quot;norm&quot;, index = i)
+    CIt$Estimate[i] = boot.object[[&quot;t0&quot;]][[i]]
+    CIt$SEboot[i] = apply(boot.object$t,2,sd)[i]
+    CIt$lower.bound[i] = CI$norm[,2]
+    CIt$upper.bound[i] = CI$norm[,3]}
+  return(CIt)
+}</code></pre>
+<p>Let’s walk through what this does.</p>
+<p>As arguments, this function takes in our model of interest, our data, and <code>boot.object</code>, the object created above using the <code>boot()</code> function.</p>
+<p>First, the function creates a vector called <code>pred</code> which consists of the names of the model coefficients.</p>
+<pre class="r"><code>pred = c(names(mod$coefficients))
+pred</code></pre>
+<pre><code>## [1] &quot;(Intercept)&quot; &quot;x1&quot;          &quot;x2&quot;          &quot;x3&quot;          &quot;x4&quot;</code></pre>
+<p>Next it creates an index object, which is just a sequence of the same length as <code>pred.</code></p>
+<pre class="r"><code>index = seq(1:length(pred))
+index</code></pre>
+<pre><code>## [1] 1 2 3 4 5</code></pre>
+<p>We put them together in a data frame.</p>
+<pre class="r"><code>CIt = data.frame(index, pred)
+CIt</code></pre>
+<pre><code>##   index        pred
+## 1     1 (Intercept)
+## 2     2          x1
+## 3     3          x2
+## 4     4          x3
+## 5     5          x4</code></pre>
+<p>Next, we initiate a <code>for</code> loop which goes through each value in <code>index</code>, and plugs that into the <code>boot.ci()</code> function. Below, we input our <code>boot.object</code> object from above and set <code>i</code> to 1 as an example.</p>
+<pre class="r"><code>CI = boot.ci(boot.object, conf = 0.95, type = &quot;norm&quot;, index = 1)
+CI</code></pre>
+<pre><code>## BOOTSTRAP CONFIDENCE INTERVAL CALCULATIONS
+## Based on 1000 bootstrap replicates
+## 
+## CALL : 
+## boot.ci(boot.out = boot.object, conf = 0.95, type = &quot;norm&quot;, index = 1)
+## 
+## Intervals : 
+## Level      Normal        
+## 95%   ( 5.417,  9.622 )  
+## Calculations and Intervals on Original Scale</code></pre>
+<p>Ok, here we have our output in terrible text format.</p>
+<p>Next, we pull the estimate out of our boot object.</p>
+<pre class="r"><code>boot.object[[&quot;t0&quot;]][[1]]</code></pre>
+<pre><code>## [1] 7.568046</code></pre>
+<p>Note that the <code>CIt$Estimate[i]=</code> just adds this extracted value to the <code>i</code>th row of <code>CIt</code> in a new column called <code>Estimate</code>.</p>
+<p>To get the standard errors, we need to take the standard deviation of the 1000 replications of each of our coefficients. Here, <code>boot.object$t</code> gives us a matrix with 5 columns (one for each coefficient), and 1000 rows (one for each repetition).</p>
+<pre class="r"><code>head(boot.object$t)</code></pre>
+<pre><code>##          [,1]       [,2]        [,3]       [,4]      [,5]
+## [1,] 7.875881 -0.4552777 -0.62879867  0.5926316 0.7166760
+## [2,] 6.570837 -0.1225229  0.06779021 -0.1819644 0.7719799
+## [3,] 8.439980 -0.5099639  0.04043891 -0.3494414 0.7018210
+## [4,] 6.619611 -0.2054833 -0.38904491  0.3489171 0.9155234
+## [5,] 7.717201 -0.5518786  0.39719526 -0.3515270 0.8313202
+## [6,] 7.269340 -0.3767260 -0.54977758  0.3026698 1.1379344</code></pre>
+<pre class="r"><code>str(boot.object$t)</code></pre>
+<pre><code>##  num [1:1000, 1:5] 7.88 6.57 8.44 6.62 7.72 ...</code></pre>
+<p>The <code>apply()</code> function is a fast way to apply a given function over different parts of a matrix. It takes in the matrix <code>boot.object</code>, as well as a <code>margin</code> value (1 for rows, 2 for columns) indicating which parts of the matrix the function will be applied over. Finally, it takes the function, <code>sd</code>. The <code>[i]</code> subscripts specifies which column we are interested in according to our progression through the <code>for</code> loop. As an example:</p>
+<pre class="r"><code>apply(boot.object$t, 2, sd)[1]</code></pre>
+<pre><code>## [1] 1.072654</code></pre>
+<p>Which matches the SE for the intercept from the overall <code>boot</code> object.</p>
+<pre class="r"><code>boot.object</code></pre>
+<pre><code>## 
+## ORDINARY NONPARAMETRIC BOOTSTRAP
+## 
+## 
+## Call:
+## boot(data = data, statistic = fun, R = 1000)
+## 
+## 
+## Bootstrap Statistics :
+##        original        bias    std. error
+## t1*  7.56804577  0.0482331382   1.0726538
+## t2* -0.37830562 -0.0117212441   0.2004917
+## t3* -0.07984083  0.0024717868   0.2827149
+## t4* -0.06903943 -0.0040158995   0.3152365
+## t5*  0.84632682 -0.0005952484   0.2533492</code></pre>
+<p>Finally, we can pull the lower and upper bounds like so:</p>
+<pre class="r"><code>CI$norm[,2]</code></pre>
+<pre><code>## [1] 5.41745</code></pre>
+<pre class="r"><code>CI$norm[,3]</code></pre>
+<pre><code>## [1] 9.622176</code></pre>
+<p>Note that you can opt for different types of bootstrapped CIs, like BCA or percentile. But the subscripts in the final few lines of the function may change because of the different outputs. You can double check which ones to use by running.</p>
+<pre class="r"><code>CI$norm</code></pre>
+<pre><code>##             conf                 
+## (Intercept) 0.95 5.41745 9.622176</code></pre>
+<p>Here we can clearly see that the first column is our confidence level, the second column is the lower bound, and the third is the upper bound. If we’re interested in BCA CIs:</p>
+<pre class="r"><code>CI = boot.ci(boot.object, conf = 0.95, type = &quot;bca&quot;, index = 1)
+CI$bca</code></pre>
+<pre><code>##      conf                               
+## [1,] 0.95 25.01 975.96 5.500238 9.629616</code></pre>
+<p>We see there are some additional parameters in there, and we would want the 4th and 5th for our CI bounds.</p>
+<p>Anyway, the estimate, SE, lower, and upper bounds are all added as columns to the original <code>CIt</code> object, and finally, we return our completed table with <code>return(CIt)</code></p>
+<p>Now when we run our shiny new function, we get a shiny new table which doesn’t give you carpal tunnel from copying and pasting it to wherever it’s going to live. We can also now easily see which parameters have CIs that exclude 0, and which don’t. While both <code>x1</code> and <code>x4</code> were significant in the original linear model, it looks like <code>x1</code> was not a very robust finding, as it’s CI includes 0 here.</p>
+<pre class="r"><code>CItable(mod = mod, data = data, boot.object = boot.object)</code></pre>
+<pre><code>##   index        pred    Estimate    SEboot lower.bound upper.bound
+## 1     1 (Intercept)  7.56804577 1.0726538   5.4174497  9.62217553
+## 2     2          x1 -0.37830562 0.2004917  -0.7595409  0.02637217
+## 3     3          x2 -0.07984083 0.2827149  -0.6364237  0.47179847
+## 4     4          x3 -0.06903943 0.3152365  -0.6828758  0.55282870
+## 5     5          x4  0.84632682 0.2533492   0.3503667  1.34347743</code></pre>
+<p>Getting comfortable with functions can really take your R skills to the next level. If you want to learn more about creating your own, I recommend Roger Peng’s <a href = https://bookdown.org/rdpeng/rprogdatascience/ target = "_blank"> R Programming for Data Science </a> and Jenny Bryan’s
+<a href = https://stat545.com/ target = "_blank"> Stat 545 </a> sites.</p>
+
+    </div>
+  </article>
+  
+
+
+</main>
+
+      <footer class="footer">
+        <ul class="footer-links">
+          <li>
+            <a href="/index.xml" type="application/rss+xml" target="_blank">RSS feed</a>
+          </li>
+          <li>
+            <a href="https://gohugo.io/" class="footer-links-kudos">Made with <img src="/images/hugo-logo.png" alt="Img link to Hugo website" width="22" height="22"></a>
+          </li>
+        </ul>
+      </footer>
+
+    </div>
+    
+
+
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+
+
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/r.min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+<script>hljs.configure({languages: []}); hljs.initHighlightingOnLoad();</script>
+
+
+
+    
+<script src="/js/math-code.js"></script>
+<script async src="//cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+
+
+    
+  </body>
+</html>
+
+
+
