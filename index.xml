@@ -46,7 +46,7 @@ I’ll base my simulation on the same data and model used in part 1, so I recomm
       <description>Download _______________________________________ Education _____________________________________________ Carnegie Mellon University, Pittsburgh, PA PhD in Social/Personality and Health Psychology Expected 2025 Advisor: Vicki Helgeson, PhD
 Northwestern University, Chicago, IL Post-Baccalaureate Certificate in PsychologySeptember 2019 Weinberg College of Arts and Sciences
 Colorado College, Colorado Springs, CO Bachelor of Arts, cum laude May 2015 Major in Anthropology; Minor in Religion
-Research Interests _____________________________________________ Adjustment to diabetes, digital health, psychosocial predictors of disease outcomes, stress, positive affect, close relationships, interpersonal coping</description>
+Research Interests _____________________________________________ Adjustment to diabetes, diabetes outcomes, digital health, psychosocial predictors of disease outcomes, stress, positive affect, close relationships, interpersonal coping</description>
     </item>
     
     <item>
@@ -66,7 +66,7 @@ Best all around reference: R for Data Science by Hadley Wickham and Garrett Grol
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
       <guid>https://fionahorner.com/research/</guid>
-      <description>_______________________________________ I am interested in how relationship processes, emotion, and stress impact motivation, problem solving, and health outcomes, and am particularly interested in exploring these questions in the context of chronic illnesses like diabetes and cancer. More recently, I have focused on the role of time-varying psychosocial factors, like mood, stress, and discrete social interactions, in predicting blood glucose and health behaviors throughout the day among people with diabetes. I use intensive longitudinal data collected from ecological momentary assessments and digital health devices, like continuous glucose monitors (CGMs) to answer these questions.</description>
+      <description>_______________________________________ I am broadly interested in how psychosocial processes impact motivation, problem solving, and health outcomes in the context of chronic illnesses like diabetes and cancer. My dissertation has been funded by Dexcom and the National Institutes of Health, and focuses on the role of time-varying psychosocial factors like mood, stress, and discrete social interactions in predicting real-time blood glucose and health behaviors among people with diabetes. I use intensive longitudinal data collected from ecological momentary assessments and digital health devices, like continuous glucose monitors (CGMs), to answer these questions.</description>
     </item>
     
   </channel>
