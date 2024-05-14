@@ -18,6 +18,16 @@ library(boot) library(tidyverse) Let’s say we have some sample data of N = 200
     </item>
     
     <item>
+      <title>Restructuring Data for Intensive Longitudinal Analysis</title>
+      <link>https://fionahorner.com/r-demos/restructure-ild/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://fionahorner.com/r-demos/restructure-ild/</guid>
+      <description>I’ve manually restructured data for intensive longitudinal analyses one too many times… So I wrote a function to do this for me, and posted here so I’d remembered that I had done so.
+Specifically, this code parses intensive longitudinal data (ILD, e.g., daily diary, EMA) variables into within-person and between-person components. Between-person variables are grand-mean centered averages; i.e., an individual’s average score across the ILD period centered around the total sample mean.</description>
+    </item>
+    
+    <item>
       <title>Simulating Multilevel Data: Part 1</title>
       <link>https://fionahorner.com/r-demos/simulating-multilevel-data/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>

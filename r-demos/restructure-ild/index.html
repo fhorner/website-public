@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Hugo 0.101.0" />
+
+
+<title>Restructuring Data for Intensive Longitudinal Analysis - Fiona Horner</title>
+<meta property="og:title" content="Restructuring Data for Intensive Longitudinal Analysis - Fiona Horner">
+
+
+  <link href='https://fionahorner.com/FHlogo.png' rel='icon' type='image/x-icon'/>
+
+
+
+  
+
+
+
+
+
+
+
+
+<link href='//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css' rel='stylesheet' type='text/css' />
+
+
+
+<link rel="stylesheet" href="/css/fonts.css" media="all">
+<link rel="stylesheet" href="/css/main.css" media="all">
+
+
+
+  </head>
+  <body>
+    <div class="wrapper">
+      <header class="header">
+        <nav class="nav">
+  <a href="/" class="nav-logo">
+    <img src="/images/FHlogo.png"
+         width="50"
+         height="50"
+         alt="Logo">
+  </a>
+
+  <ul class="nav-links">
+    
+    <li><a href="/research/">Research</a></li>
+    
+    <li><a href="/cv/">CV</a></li>
+    
+    <li><a href="/r-demos/">R Demos</a></li>
+    
+  </ul>
+</nav>
+
+      </header>
+
+
+<main class="content" role="main">
+
+  <article class="article">
+    
+
+    <h1 class="article-title">Restructuring Data for Intensive Longitudinal Analysis</h1>
+
+    
+
+    <div class="article-content">
+      
+
+
+<p>I’ve manually restructured data for intensive longitudinal analyses one too many times… So I wrote a function to do this for me, and posted here so I’d remembered that I had done so.</p>
+<p>Specifically, this code parses intensive longitudinal data (ILD, e.g., daily diary, EMA) variables into <em>within-person</em> and <em>between-person</em> components. Between-person variables are grand-mean centered averages; i.e., an individual’s average score across the ILD period centered around the total sample mean. Within-person variables represent a single observation for a given individual centered around that person’s mean. Parsing the data in this way allows you to better understand if it’s someone’s disposition (between-person) that matters, or if it is departures from one’s norm (within-person) that matters in your analysis.</p>
+<p>As usual, we’ll use the <code>tidyverse</code> packages.</p>
+<pre class="r"><code>library(tidyverse)</code></pre>
+<p>We’ll use some sample data from a two-week daily diary period to illustrate this. Here, we have daily measures of participants mood, including happiness, depressed mood, anxiety, and anger.</p>
+<pre class="r"><code>head(ddData)</code></pre>
+<pre><code>## # A tibble: 6 × 5
+##   id    happy  depr   anx anger
+##   &lt;fct&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;
+## 1 1      2.67  1.33   3    1   
+## 2 1      3     1.33   2    1   
+## 3 1      3.33  1      2    1   
+## 4 1      3     1.33   2    1   
+## 5 1      3     1.67   2    1   
+## 6 1      2.33  3      3.5  2.67</code></pre>
+<p>We have 200 participants:</p>
+<pre class="r"><code>ddData %&gt;% 
+  group_by(id) %&gt;% 
+  summarise() %&gt;% 
+  nrow()</code></pre>
+<pre><code>## [1] 200</code></pre>
+<p>As you can probably gather, the actual data manipulation here is quite straightforward. The general workflow is:</p>
+<ol style="list-style-type: decimal">
+<li><p>Use <code>group_by()</code> to group your data by person (or whatever your level 2 variable is)</p></li>
+<li><p>Calculate each person’s person-mean</p></li>
+<li><p>Calculate the within-person variable by subtracting the person mean from the daily measure.</p></li>
+<li><p>Ungroup your data</p></li>
+<li><p>Calculate the grand mean (across the whole sample). Note that this should be the mean of the person-means, so that you don’t inadvertently weight the grand mean based on who responded to the most surveys.</p></li>
+<li><p>Calculate the between-person variable by subtracting the grand mean from the person-mean</p></li>
+</ol>
+<p>For a single variable, say <code>happy</code>, this looks like this:</p>
+<pre class="r"><code>happyData &lt;-  ddData %&gt;%
+  #group by individual (or level 2 variable)
+  group_by(id) %&gt;%
+  #calculate (person) mean
+  mutate(happy_pm = mean(happy, na.rm=TRUE))%&gt;%
+  #calculate within-person variables
+  mutate(happy_w = happy - happy_pm) %&gt;%
+  #Need to ungroup here: future operations should be for whole dataset,
+  #not per person/unit
+  ungroup()%&gt;%
+  #calculate grand mean; mean across whole sample
+  mutate(happy_gm = mean(happy_pm, na.rm=TRUE)) %&gt;%
+  #calculate between person variable
+  #this is the difference between an individual&#39;s person-mean and the grand mean
+  mutate(happy_b = happy_pm - happy_gm)
+
+head(happyData)</code></pre>
+<pre><code>## # A tibble: 6 × 9
+##   id    happy  depr   anx anger happy_pm   happy_w happy_gm happy_b
+##   &lt;fct&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;   &lt;dbl&gt;
+## 1 1      2.67  1.33   3    1        2.33  0.334        3.65   -1.32
+## 2 1      3     1.33   2    1        2.33  0.667        3.65   -1.32
+## 3 1      3.33  1      2    1        2.33  1.00         3.65   -1.32
+## 4 1      3     1.33   2    1        2.33  0.667        3.65   -1.32
+## 5 1      3     1.67   2    1        2.33  0.667        3.65   -1.32
+## 6 1      2.33  3      3.5  2.67     2.33 -0.000250     3.65   -1.32</code></pre>
+<p>With one variable, this is pretty straightforward. But when you have multiple predictor variables that you need to parse, it gets to be a lot of copy-and-pasting (i.e., a lot of room for human error). Instead, we can create a function that takes a vector of variables and performs this operation on all of them.</p>
+<div id="writing-the-function" class="section level2">
+<h2>Writing the Function</h2>
+<p>First, we’ll just dump the code above into a helper function. The main difference here is that we have to do a bit of maneuvering in order to accurately access variables names within the function. We input the names for our <code>grouping</code> variable and the variable we want to parse as <em>strings</em>. Then, in the body of the function, we use the <code>sym()</code> function from the <code>rlang</code> package to turn these variable names into symbols. The <code>!!</code> operator tells R to look in our data frame for the variable instead of in the environment (fun fact, <code>!!</code> <a href="https://rlang.r-lib.org/reference/topic-inject.html?q=!!#injecting-with-">is called the “bang bang” operator</a>!)</p>
+<p>In this function, <code>grouping</code> is your grouping variable (typically participant ID), and <code>variable</code> is the variable you want to parse into within- and between-group components. Again, this function will only parse one variable at a time.</p>
+<pre class="r"><code>parseOne &lt;- function(data, grouping, variable) {
+  require(rlang)
+  #this is (almost) the same as above:
+  data &lt;- data %&gt;% 
+    #here we use !! and sym()
+    group_by(!!sym(grouping)) %&gt;% 
+    mutate(var_pm = mean(!!sym(variable), na.rm=TRUE),
+           var_w = !!sym(variable) - var_pm) %&gt;%
+    ungroup()%&gt;%
+    mutate(var_gm = mean(var_pm, na.rm=TRUE),
+         var_b = var_pm - var_gm) %&gt;% 
+    select(-c(var_pm, var_gm))
+  
+  #here we rename our variable using the original variable name as stem
+  names(data)[names(data) == &quot;var_w&quot;] &lt;- paste(variable,&quot;_w&quot;, sep = &quot;&quot;)
+  names(data)[names(data) == &quot;var_b&quot;] &lt;- paste(variable,&quot;_b&quot;, sep = &quot;&quot;)
+
+  return(data)
+}</code></pre>
+<p>This gives us an updated data frame with one variable parsed into it’s within and between-person components:</p>
+<pre class="r"><code>newDat &lt;- parseOne(ddData, grouping = &quot;id&quot;, variable = &quot;happy&quot;)
+head(newDat)</code></pre>
+<pre><code>## # A tibble: 6 × 7
+##   id    happy  depr   anx anger   happy_w happy_b
+##   &lt;fct&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;
+## 1 1      2.67  1.33   3    1     0.334      -1.32
+## 2 1      3     1.33   2    1     0.667      -1.32
+## 3 1      3.33  1      2    1     1.00       -1.32
+## 4 1      3     1.33   2    1     0.667      -1.32
+## 5 1      3     1.67   2    1     0.667      -1.32
+## 6 1      2.33  3      3.5  2.67 -0.000250   -1.32</code></pre>
+<p>Once we have that helper function, we can create a wrapper function that intakes a vector of variables that we want to parse. All we need is a for loop that iteratively applies our new function for each variable in the vector:</p>
+<pre class="r"><code>parseILD &lt;- function(data, grouping, variables){
+for(i in variables){
+  data &lt;- parseOne(data, grouping, i)
+}
+return(data)
+}</code></pre>
+<p>Let’s try it out:</p>
+<pre class="r"><code>newDat &lt;- parseILD(ddData, grouping = &quot;id&quot;, variables = c(&quot;happy&quot;, &quot;depr&quot;))
+head(newDat)</code></pre>
+<pre><code>## # A tibble: 6 × 9
+##   id    happy  depr   anx anger   happy_w happy_b  depr_w  depr_b
+##   &lt;fct&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;
+## 1 1      2.67  1.33   3    1     0.334      -1.32 -0.0557 -0.0981
+## 2 1      3     1.33   2    1     0.667      -1.32 -0.0557 -0.0981
+## 3 1      3.33  1      2    1     1.00       -1.32 -0.389  -0.0981
+## 4 1      3     1.33   2    1     0.667      -1.32 -0.0557 -0.0981
+## 5 1      3     1.67   2    1     0.667      -1.32  0.278  -0.0981
+## 6 1      2.33  3      3.5  2.67 -0.000250   -1.32  1.61   -0.0981</code></pre>
+<p>We can add as many variables as we want to our <code>variables</code> vector:</p>
+<pre class="r"><code>newDat &lt;- parseILD(ddData, grouping = &quot;id&quot;, 
+                   variables = c(&quot;happy&quot;, &quot;depr&quot;, &quot;anx&quot;, &quot;anger&quot;))
+head(newDat)</code></pre>
+<pre><code>## # A tibble: 6 × 13
+##   id    happy  depr   anx anger   happy_w happy_b  depr_w  depr_b  anx_w anx_b
+##   &lt;fct&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;   &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt;
+## 1 1      2.67  1.33   3    1     0.334      -1.32 -0.0557 -0.0981  0.792 0.624
+## 2 1      3     1.33   2    1     0.667      -1.32 -0.0557 -0.0981 -0.208 0.624
+## 3 1      3.33  1      2    1     1.00       -1.32 -0.389  -0.0981 -0.208 0.624
+## 4 1      3     1.33   2    1     0.667      -1.32 -0.0557 -0.0981 -0.208 0.624
+## 5 1      3     1.67   2    1     0.667      -1.32  0.278  -0.0981 -0.208 0.624
+## 6 1      2.33  3      3.5  2.67 -0.000250   -1.32  1.61   -0.0981  1.29  0.624
+## # ℹ 2 more variables: anger_w &lt;dbl&gt;, anger_b &lt;dbl&gt;</code></pre>
+<p>And now you have parsed data for your ILD analyses!</p>
+</div>
+
+    </div>
+  </article>
+  
+
+
+</main>
+
+      <footer class="footer">
+        <ul class="footer-links">
+          <li>
+            <a href="/index.xml" type="application/rss+xml" target="_blank">RSS feed</a>
+          </li>
+          <li>
+            <a href="https://gohugo.io/" class="footer-links-kudos">Made with <img src="/images/hugo-logo.png" alt="Img link to Hugo website" width="22" height="22"></a>
+          </li>
+        </ul>
+      </footer>
+
+    </div>
+    
+
+
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+
+
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/r.min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+<script>hljs.configure({languages: []}); hljs.initHighlightingOnLoad();</script>
+
+
+
+    
+
+    
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-WSRV6WZ8TC"></script>
+<script>
+var doNotTrack = false;
+if (!doNotTrack) {
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-WSRV6WZ8TC', { 'anonymize_ip': false });
+}
+</script>
+
+  </body>
+</html>
+
+
+
