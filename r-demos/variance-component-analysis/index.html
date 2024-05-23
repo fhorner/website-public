@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="generator" content="Hugo 0.101.0" />
+
+
+<title>Variance Component Analysis - Fiona Horner</title>
+<meta property="og:title" content="Variance Component Analysis - Fiona Horner">
+
+
+  <link href='https://fionahorner.com/FHlogo.png' rel='icon' type='image/x-icon'/>
+
+
+
+  
+
+
+
+
+
+
+
+
+<link href='//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css' rel='stylesheet' type='text/css' />
+
+
+
+<link rel="stylesheet" href="/css/fonts.css" media="all">
+<link rel="stylesheet" href="/css/main.css" media="all">
+
+
+
+  </head>
+  <body>
+    <div class="wrapper">
+      <header class="header">
+        <nav class="nav">
+  <a href="/" class="nav-logo">
+    <img src="/images/FHlogo.png"
+         width="50"
+         height="50"
+         alt="Logo">
+  </a>
+
+  <ul class="nav-links">
+    
+    <li><a href="/research/">Research</a></li>
+    
+    <li><a href="/cv/">CV</a></li>
+    
+    <li><a href="/r-demos/">R Demos</a></li>
+    
+  </ul>
+</nav>
+
+      </header>
+
+
+<main class="content" role="main">
+
+  <article class="article">
+    
+
+    <h1 class="article-title">Variance Component Analysis</h1>
+
+    
+
+    <div class="article-content">
+      
+
+
+<p>Variance component analysis (VCA) is a way to assess the reliability of measures designed for intensive longitudinal data, like daily diary or ecological momentary assessment studies. This type of study poses particular challenges when it comes to measurement, because you need your measure to accurate capture your construct of interest, but to do so in a way that is sensitive to small changes over short periods of time. That is, you are explicitly interested in capturing these within-person changes in a reliable way. For a more complete introduction to this topic, I recommend Bolger and Laurenceau’s classic <a href="http://www.intensivelongitudinal.com/"><em>Intensive Longitudinal Methods</em></a> book.</p>
+<p>This post focuses on conducting VCA in R. So while I’ll briefly review the underlying theory here, this post will focus on writing a function that can quickly calculate a measure’s reliability in one step.</p>
+<div id="brief-background" class="section level2">
+<h2>Brief Background</h2>
+<p>In typical psychological measures, reliability assessments are concerned with differentiating true variability (e.g., real variance in the construct of interest) from measurement error (noise present in the measures). For intensive longitudinal data, this task is complicated by the fact that measure variance can stem from more sources.</p>
+<p>For example, suppose we have a daily diary study where individuals reported their mood at the end of each day for 14 days. We’re interested in participants’ reported happiness, which was measured by three items each day. Here, we expect that every day, the three happiness items should “hang together” well (i.e., be highly correlated), but we would expect these measure to vary from day to day and person to person. In other words, the variability across persons and time points is meaningful – we don’t want to say this is “error”, because we are specifically interested in measuring within-person changes over time.</p>
+<p>Bolger and Laurenceau use a random effects model to decompose these variances and estimate a reliability coefficient, <span class="math inline">\(R_C\)</span>. I’ll again point readers to their excellent book for a full discussion of this topic. But their formula of interest for VCA is:</p>
+<p><span class="math display">\[ R_C = \frac{\sigma^2_{TP}}{\sigma^2_{TP} + \frac{\sigma^2_\epsilon}{k}}\]</span></p>
+<p>Where <span class="math inline">\(\sigma^2_{TP}\)</span> is the time-by-person random effect, aka the variance specific to each person/time point across the measurement period; <span class="math inline">\(\sigma^2_\epsilon\)</span> represents the error variance, and k represents the number of items in the given measure.</p>
+<p>(Note that <span class="math inline">\(\sigma^2_\epsilon\)</span> is actually the sum of the three-way random effect <span class="math inline">\(\sigma^2_{TPI}\)</span> and variance from all remaining sources, but these terms can’t be disentangled in this type of model.)</p>
+</div>
+<div id="conducting-vca-in-r" class="section level2">
+<h2>Conducting VCA in R</h2>
+<p>This post is specifically focused on how to actually calculate this <span class="math inline">\(R_C\)</span> value for a daily diary measure in R. Note that you need at least three items in your measure to conduct VCA. There are three key steps:</p>
+<ul>
+<li>Transform your data into the correct format</li>
+<li>Run the correct mixed effects model</li>
+<li>Extract the necessary variance terms from your model and calculate <span class="math inline">\(R_C\)</span> using the formula above.</li>
+</ul>
+<p>Here, I break each of these steps into different helper functions, and then combine these into an overall function to streamline VCA calculations.</p>
+<p>For this tutorial, I’ll use sample data from a 14-day daily diary study. Each night, participants rated their mood (happy, depressed, anxious, angry) for that day. Each mood subscale was measured with three different items.</p>
+<p>Since we’re assessing measure reliability, we need to work with the individual items rather than the subscale average. Here’s what the diary data look like:</p>
+<pre class="r"><code>head(ddata)</code></pre>
+<pre><code>##   ptid day happy1 happy2 happy3 depr1 depr2 depr3 anx1 anx2 anx3 ang1 ang2 ang3
+## 1    1   0      3      2      3     1     2     1    2    3    3    1    1    1
+## 2    1   1      3      3      3     1     2     1    3    2    2    1    1    1
+## 3    1   2      3      4      3     1     1     1    2    2    2    1    1    1
+## 4    1   3      3      3      3     1     2     1    3    2    2    1    1    1
+## 5    1   4      3      3      3     1     1     3    3    2    2    1    1    1
+## 6    1   5      5      1      1     4     2     3    5    5    2    5    2    1</code></pre>
+<div id="step-1-function-to-transform-data" class="section level3">
+<h3>Step 1: Function to Transform Data</h3>
+<p>Notice that our data above are in <em>long</em> format, meaning that each participant (<code>ptid</code>) has multiple rows of data, one for each day of the diary period (<code>day</code> column).</p>
+<p>For VCA, we need to do a few data transformation before we can proceed. First, we need to select just the variables contained in the measure of interest, along with our ID variable and our time variable. Let’s say we’re interested in the reliability of our “happy” measure.</p>
+<p>We identify the variables we want to keep and then select them from our data:</p>
+<pre class="r"><code>vars_to_keep &lt;- c(&quot;ptid&quot;, &quot;day&quot;, &quot;happy1&quot;, &quot;happy2&quot;, &quot;happy3&quot;)
+trimmedData &lt;- ddata[, vars_to_keep, drop = FALSE]
+head(trimmedData)</code></pre>
+<pre><code>##   ptid day happy1 happy2 happy3
+## 1    1   0      3      2      3
+## 2    1   1      3      3      3
+## 3    1   2      3      4      3
+## 4    1   3      3      3      3
+## 5    1   4      3      3      3
+## 6    1   5      5      1      1</code></pre>
+<p>Next, we need to transform this dataset into “longer” format. Rather than having a different column for each “happy” variable, we want a single “value” column that contains the numeric values for all three of these. We also want an “item” column that retains the information about which item each number corresponds to. This is what the <code>tidyverse</code> function <code>pivot_longer</code> was built to do.</p>
+<pre class="r"><code>library(tidyverse)
+
+longerData &lt;- trimmedData %&gt;% 
+  pivot_longer(cols = c(happy1, happy2, happy3),
+               names_to = &quot;item&quot;,
+               values_to = &quot;values&quot;)</code></pre>
+<p>Here, <code>cols</code> should contain just the variables in our scale of interest.</p>
+<p>Let’s take a look:</p>
+<pre class="r"><code>head(longerData, n = 20)</code></pre>
+<pre><code>## # A tibble: 20 × 4
+##     ptid   day item   values
+##    &lt;int&gt; &lt;int&gt; &lt;chr&gt;   &lt;int&gt;
+##  1     1     0 happy1      3
+##  2     1     0 happy2      2
+##  3     1     0 happy3      3
+##  4     1     1 happy1      3
+##  5     1     1 happy2      3
+##  6     1     1 happy3      3
+##  7     1     2 happy1      3
+##  8     1     2 happy2      4
+##  9     1     2 happy3      3
+## 10     1     3 happy1      3
+## 11     1     3 happy2      3
+## 12     1     3 happy3      3
+## 13     1     4 happy1      3
+## 14     1     4 happy2      3
+## 15     1     4 happy3      3
+## 16     1     5 happy1      5
+## 17     1     5 happy2      1
+## 18     1     5 happy3      1
+## 19     1     6 happy1      3
+## 20     1     6 happy2      2</code></pre>
+<p>We can now see that both <code>ptid</code> and <code>day</code> are repeated, and our items are “stacked” – our data frame is now much longer than it was before!</p>
+<p>We can streamline this process by condensing the above code into a function. Here, the arguments <code>id</code> and <code>time</code> should be characters of your id and time variable names, e.g., <code>"ptid"</code> and <code>"day"</code>. The argument <code>variables</code> should be a vector containing the names of the items in your scale of interest, again in character format. E.g., <code>variables = c("happy1", "happy2", "happy3)</code>.</p>
+<p>The only difference in the code below is that we use the <code>all_of()</code> function within <code>pivot_longer</code> to accurately specify our <code>cols</code>. Additionally, we transform the id, time, and item variables to factors at the very end, and rename our id and time variables to facilitate future operations.</p>
+<pre class="r"><code>reshapeLonger &lt;- function(data, id, time, variables){
+  require(tidyverse, quietly = TRUE, warn.conflicts = TRUE)
+  
+  #merge arguments and select columns from larger data set
+  select_cols = append(variables, c(id, time), after = 0)
+  subdata &lt;- data[, select_cols, drop = FALSE]
+
+  #transform to &quot;longer&quot; format
+  longerData &lt;- subdata %&gt;% 
+    pivot_longer(cols = all_of(variables), #use all_of() here
+               names_to = &quot;item&quot;,
+               values_to = &quot;value&quot;)
+  
+  #convert the id, time, an &quot;item&quot; variables to factors
+  factors &lt;- c(id, time, &quot;item&quot;)
+  longerData[factors] &lt;- lapply(longerData[factors], as.factor)
+  
+  #standardize names for ease in the future  
+  names(longerData)[1] = &quot;id&quot; #ptid becomes id
+  names(longerData)[2] = &quot;time&quot; #day becomes time
+  
+  return(longerData)
+}</code></pre>
+<p>Let’s test it out!</p>
+<pre class="r"><code>longerDataTest &lt;- reshapeLonger(data = ddata, id = &quot;ptid&quot;, time = &quot;day&quot;, 
+                            variables = c(&quot;happy1&quot;, &quot;happy2&quot;, &quot;happy3&quot;))
+
+head(longerDataTest)</code></pre>
+<pre><code>## # A tibble: 6 × 4
+##   id    time  item   value
+##   &lt;fct&gt; &lt;fct&gt; &lt;fct&gt;  &lt;int&gt;
+## 1 1     0     happy1     3
+## 2 1     0     happy2     2
+## 3 1     0     happy3     3
+## 4 1     1     happy1     3
+## 5 1     1     happy2     3
+## 6 1     1     happy3     3</code></pre>
+<p>Looks good!</p>
+</div>
+<div id="step-2-function-to-run-the-model" class="section level3">
+<h3>Step 2: Function to Run the Model</h3>
+<p>Here, we run the mixed effects model so that we can access the partitioned variance for our <span class="math inline">\(R_C\)</span> formula. We use the package <code>lme4</code> to do this.</p>
+<p>Note that this function takes as it’s first argument the <code>longerData</code> object that we created in the function above. Since we created that data frame to our specifications, we know that it already has variables for <code>id</code>, <code>time</code>, and <code>item</code>. All we need to do is to run the appropriate model with the provided data.</p>
+<p>Here, our model includes random effects for each of our key sources of variance: <code>id</code>, <code>time</code>, and <code>item</code>, as well as random effects for their two-way interactions. The function returns the fitted model.</p>
+<pre class="r"><code>runModel &lt;- function(longerData){
+  require(lme4, quietly = TRUE)
+
+  mod &lt;- lmer(value ~  1 + (1|id) + (1|time) + (1|item) 
+           + (1|id:time) + (1|id:item) + (1|time:item), 
+           data = longerData) 
+  
+  return(mod)
+}</code></pre>
+<p>Let’s test this on our <code>longerDataTest</code> object from above. We’ll save the output as <code>hapmod</code> because it is a model for our “happy” subscale. This sometimes takes a few seconds to run because the model is quite complex.</p>
+<pre class="r"><code>hapmod &lt;- runModel(longerDataTest)</code></pre>
+<pre><code>## 
+## Attaching package: &#39;Matrix&#39;</code></pre>
+<pre><code>## The following objects are masked from &#39;package:tidyr&#39;:
+## 
+##     expand, pack, unpack</code></pre>
+</div>
+<div id="step-3-function-to-calculate-r_c" class="section level3">
+<h3>Step 3: Function to Calculate <span class="math inline">\(R_C\)</span></h3>
+<p>Recall our formula for <span class="math inline">\(R_C\)</span> from above:</p>
+<p><span class="math display">\[ R_C = \frac{\sigma^2_{TP}}{\sigma^2_{TP} + \frac{\sigma^2_\epsilon}{k}}\]</span></p>
+<p>Our final task is to turn this into a function. To do so, we need to access all of the terms in the formula: <span class="math inline">\(\sigma^2_{TP}\)</span>, <span class="math inline">\(\sigma^2_\epsilon\)</span>, and <span class="math inline">\(k\)</span>.</p>
+<p><span class="math inline">\(\sigma^2_{TP}\)</span> is the variance for the <code>id:time</code> random effect from our model. We can access this using the <code>VarCorr</code> function from <code>lme4</code>. This gives us the variance and correlation components of our mixed-effects model:</p>
+<pre class="r"><code>VarCorr(hapmod)</code></pre>
+<pre><code>##  Groups    Name        Std.Dev.
+##  id:time   (Intercept) 0.599702
+##  id:item   (Intercept) 0.231063
+##  id        (Intercept) 0.782819
+##  time:item (Intercept) 0.034733
+##  time      (Intercept) 0.035292
+##  item      (Intercept) 0.207363
+##  Residual              0.537315</code></pre>
+<p>While this prints the standard deviations, the variances are also stored in this object – and that is what we really want. We can access the variance for id:time like so:</p>
+<pre class="r"><code>modcov &lt;- VarCorr(hapmod)
+modcov[[&quot;id:time&quot;]][1,1]</code></pre>
+<pre><code>## [1] 0.359642</code></pre>
+<p>The error variance, <span class="math inline">\(\sigma^2_\epsilon\)</span>, is pulled from our model object using the <code>sigma()</code> function:</p>
+<pre class="r"><code>sigma(hapmod)</code></pre>
+<pre><code>## [1] 0.5373149</code></pre>
+<p>Finally, <span class="math inline">\(k\)</span>, the number of items in our scale, is simply the length of our <code>variables</code> vector:</p>
+<pre class="r"><code>length(c(&quot;happy1&quot;, &quot;happy2&quot;, &quot;happy3&quot;))</code></pre>
+<pre><code>## [1] 3</code></pre>
+<p>Putting this all together, we can thus create a function that extracts all of these values and then combines them into our <span class="math inline">\(R_C\)</span> model:</p>
+<pre class="r"><code>calcRc &lt;- function (mod, variables) { 
+  m = length(variables)  #number of items in scale
+  modvar &lt;- VarCorr(mod) #variance matrix
+  idTime &lt;- modvar[[&quot;id:time&quot;]][1,1] #extract id:time random effect
+  modRc = idTime/(idTime + ((sigma(mod)^2)/m)) #calculate RC
+  return(modRc)
+}</code></pre>
+<p>We test this by inputting our model object and our <code>variables</code> vector:</p>
+<pre class="r"><code>calcRc(hapmod, variables = c(&quot;happy1&quot;, &quot;happy2&quot;, &quot;happy3&quot;))</code></pre>
+<pre><code>## [1] 0.7889</code></pre>
+<p>This tells us that our “happy” subscale shows good measurement reliability!</p>
+</div>
+<div id="step-4-combining-into-one" class="section level3">
+<h3>Step 4: Combining into one</h3>
+<p>Now, we want to combine all of this work into a single function. This is actually the easiest step! We just use our three helper functions inside of a new <code>varcomp</code> function:</p>
+<pre class="r"><code>varcomp &lt;- function(data, id, time, variables){
+  longerData &lt;- reshapeLonger(data, id, time, variables)
+  mod &lt;- runModel(longerData)
+  return(calcRc(mod, variables))
+}</code></pre>
+<p>And now we can run our VCA in a single step!</p>
+<pre class="r"><code>varcomp(data = ddata, id = &quot;ptid&quot;, time = &quot;day&quot;, 
+        variables = c(&quot;happy1&quot;, &quot;happy2&quot;, &quot;happy3&quot;))</code></pre>
+<pre><code>## [1] 0.7889</code></pre>
+<p>Let’s try it on some of the other mood measures we have.</p>
+<pre class="r"><code>#anger
+anger &lt;- varcomp(data = ddata, id = &quot;ptid&quot;, time = &quot;day&quot;, 
+        variables = c(&quot;ang1&quot;, &quot;ang2&quot;, &quot;ang3&quot;))
+
+#anxiety
+anxiety &lt;- varcomp(data = ddata, id = &quot;ptid&quot;, time = &quot;day&quot;, 
+        variables = c(&quot;anx1&quot;, &quot;anx2&quot;, &quot;anx3&quot;))
+
+print(paste(&quot;Anger RC:&quot;, round(anger, 3)))</code></pre>
+<pre><code>## [1] &quot;Anger RC: 0.811&quot;</code></pre>
+<pre class="r"><code>print(paste(&quot;Anxiety RC:&quot;, round(anxiety, 3)))</code></pre>
+<pre><code>## [1] &quot;Anxiety RC: 0.491&quot;</code></pre>
+<p>It looks like Anger has good reliability, but Anxiety does not. We would want to further investigate what is going on with Anxiety before proceeding with any analyses.</p>
+</div>
+</div>
+
+    </div>
+  </article>
+  
+
+
+</main>
+
+      <footer class="footer">
+        <ul class="footer-links">
+          <li>
+            <a href="/index.xml" type="application/rss+xml" target="_blank">RSS feed</a>
+          </li>
+          <li>
+            <a href="https://gohugo.io/" class="footer-links-kudos">Made with <img src="/images/hugo-logo.png" alt="Img link to Hugo website" width="22" height="22"></a>
+          </li>
+        </ul>
+      </footer>
+
+    </div>
+    
+
+
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+
+
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/r.min.js"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+<script>hljs.configure({languages: []}); hljs.initHighlightingOnLoad();</script>
+
+
+
+    
+<script src="/js/math-code.js"></script>
+<script async src="//cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML"></script>
+
+
+    
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-WSRV6WZ8TC"></script>
+<script>
+var doNotTrack = false;
+if (!doNotTrack) {
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-WSRV6WZ8TC', { 'anonymize_ip': false });
+}
+</script>
+
+  </body>
+</html>
+
+
+

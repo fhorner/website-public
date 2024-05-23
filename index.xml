@@ -48,6 +48,15 @@ I’ll base my simulation on the same data and model used in part 1, so I recomm
     </item>
     
     <item>
+      <title>Variance Component Analysis</title>
+      <link>https://fionahorner.com/r-demos/variance-component-analysis/</link>
+      <pubDate>Fri, 17 May 2024 00:00:00 +0000</pubDate>
+      
+      <guid>https://fionahorner.com/r-demos/variance-component-analysis/</guid>
+      <description>Variance component analysis (VCA) is a way to assess the reliability of measures designed for intensive longitudinal data, like daily diary or ecological momentary assessment studies. This type of study poses particular challenges when it comes to measurement, because you need your measure to accurate capture your construct of interest, but to do so in a way that is sensitive to small changes over short periods of time. That is, you are explicitly interested in capturing these within-person changes in a reliable way.</description>
+    </item>
+    
+    <item>
       <title>Curriculum Vitae</title>
       <link>https://fionahorner.com/cv/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
